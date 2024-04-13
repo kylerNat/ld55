@@ -1,0 +1,10 @@
+/build
+/models
+/sounds
+/art
+/data
+/gif_recordings
+/resources
+**/backup
+*.zip
+**/#*.*#
