@@ -28,6 +28,7 @@ define_printer(strand s, ("%.*s", s.len, s.str));
 #define is_newline(a) ((a) == '\n' || (a) == '\r')
 #define is_lowercase(a) (('a' <= (a) && (a) <= 'z'))
 #define is_uppercase(a) (('A' <= (a) && (a) <= 'Z'))
+#define is_letter(a) (is_lowercase(a) || is_uppercase(a))
 #define is_lowercasehex(a) (('a' <= (a) && (a) <= 'f'))
 #define is_uppercasehex(a) (('A' <= (a) && (a) <= 'F'))
 #define is_wordstart(a) (is_lowercase(a) || is_uppercase(a) || (a) == '_')

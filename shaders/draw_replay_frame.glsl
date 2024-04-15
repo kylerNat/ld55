@@ -35,7 +35,12 @@ layout(location = 1) flat in uint index;
 
 void main()
 {
-    frag_color = texture(frames[index], uv);
+    vec2 size = vec2(textureSize(frames[index], 0));
+    vec2 s = uv*size-0.5;
+    vec2 f = fract(s);
+    float b = 0.5*fwidth(s.x);
+    vec2 t = trunc(s) + smoothstep(0.5-b, 0.5+b, f)+0.5;
+    frag_color = texture(frames[index], t/size);
 }
 
 #endif //////////////////////////////////////////

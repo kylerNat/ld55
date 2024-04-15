@@ -58,6 +58,9 @@ struct user_input
     void* active_ui_element;
     int hovered_ui_element;
     int old_hovered_ui_element;
+
+    uint32 typed[256]; //buttons typed in order
+    int n_typed;
 };
 
 struct window_t
@@ -106,6 +109,7 @@ void reset_input_state(user_input* input)
     input->mouse_wheel = 0;
     input->dmouse = zero_2;
     input->click_blocked &= is_down(M1, input);
+    input->n_typed = 0;
 }
 
 void clear_input_state(user_input* input)
@@ -323,6 +327,8 @@ int next_gui_element = 1;
 button_out do_text_button(user_input* input, real_3 pos, real_2 size, char* text)
 {
     bool hovered = all_less_than_eq(abs_per_axis(input->mouse-pos.xy), size);
+    int gui_id = next_gui_element++;
+    if(hovered) input->hovered_ui_element = gui_id;
     bool clicked = hovered && is_click_pressed(input);
     input->click_blocked |= clicked;
     real_4 color = (hovered) ? gui.highlight_color : gui.background_color;
@@ -376,7 +382,7 @@ button_out do_slider(user_input* input, real_3 pos, real_2 size, real* value, re
     bool hovered = all_less_than_eq(abs_per_axis(input->mouse-pos.xy), size);
     bool clicked = hovered && is_click_pressed(input);
     input->click_blocked |= clicked;
-    real_4 color = (hovered & !clicked) ? gui.highlight_color : gui.background_color;
+    real_4 color = (hovered & !clicked) ? gui.foreground_color : gui.highlight_color;
 
     int gui_id = next_gui_element++;
     if(hovered) input->hovered_ui_element = gui_id;
@@ -399,8 +405,11 @@ button_out do_slider(user_input* input, real_3 pos, real_2 size, real* value, re
         }
     }
     real t = (*value-min_value)/(max_value-min_value);
-    draw_rectangle(pos, size, color);
-    draw_rectangle(pos+(real_3){-(1.0f-t)*size.x}, {t*size.x, 0.8*size.y}, gui.foreground_color);
+    real_2 line_size = size;
+    line_size.y *= 0.1;
+    draw_rectangle(pos, line_size, color);
+    // draw_rectangle(pos+(real_3){-(1.0f-t)*size.x}, {t*size.x, 1.0*size.y}, gui.foreground_color);
+    draw_rectangle(pos+(real_3){2.0f*t*size.x-size.x,0,0}, {0.01f, 1.0*size.y}, gui.foreground_color);
     // draw_text(text, pos.x, pos.y, gui.foreground_color, {0,0}, vkon.default_font);
 
     return {clicked, hovered};
@@ -557,64 +566,64 @@ real_4 do_color_picker(user_input* input, real_3 pos, real size, real_3* hsv)
     draw_color_picker(pos, size, *hsv);
 
     real_3 selected_pos = vertices[0]*(hsv->y-0.5f+0.5f*hsv->z)+vertices[1]*(-hsv->y+0.5f+0.5f*hsv->z)+vertices[2]*(1.0f-hsv->z);
-    draw_circle(selected_pos, size*0.055f, {1,1,1,1});
-    draw_circle(selected_pos, size*0.05f, color);
+    draw_circle(selected_pos, size*0.085f, {1,1,1,1});
+    draw_circle(selected_pos, size*0.08f, color);
     return color;
 }
 
-bool cancel_button_changes()
-{
-    bool canceled = false;
-    for(int i = 0; i < len(settings.buttons); i++)
-    {
-        if(settings.buttons[i] < 0)
-        {
-            settings.buttons[i] = -settings.buttons[i];
-            canceled = true;
-        }
-    }
-    return canceled;
-}
+// bool cancel_button_changes()
+// {
+//     bool canceled = false;
+//     for(int i = 0; i < len(settings.buttons); i++)
+//     {
+//         if(settings.buttons[i] < 0)
+//         {
+//             settings.buttons[i] = -settings.buttons[i];
+//             canceled = true;
+//         }
+//     }
+//     return canceled;
+// }
 
-void do_keybind_setting(user_input* input, char* name, real_3 pos, real_2 size, int* key)
-{
-    char keyname[256] = {};
-    get_keycode_name(*key, keyname, len(keyname));
+// void do_keybind_setting(user_input* input, char* name, real_3 pos, real_2 size, int* key)
+// {
+//     char keyname[256] = {};
+//     get_keycode_name(*key, keyname, len(keyname));
 
-    bool hovered = all_less_than_eq(abs_per_axis(input->mouse-pos.xy), size);
-    bool clicked = hovered && is_click_pressed(input);
-    input->click_blocked |= clicked;
-    real_4 color = (hovered & !clicked) ? gui.highlight_color : gui.background_color;
-    draw_rectangle(pos, size, color);
-    draw_text(name, pos.xy-(real_2){0.25f,0.0f}, gui.foreground_color, {0,0}, vkon.default_font);
+//     bool hovered = all_less_than_eq(abs_per_axis(input->mouse-pos.xy), size);
+//     bool clicked = hovered && is_click_pressed(input);
+//     input->click_blocked |= clicked;
+//     real_4 color = (hovered & !clicked) ? gui.highlight_color : gui.background_color;
+//     draw_rectangle(pos, size, color);
+//     draw_text(name, pos.xy-(real_2){0.25f,0.0f}, gui.foreground_color, {0,0}, vkon.default_font);
 
-    if(hovered) input->hovered_ui_element = next_gui_element++;
+//     if(hovered) input->hovered_ui_element = next_gui_element++;
 
-    if(clicked)
-    {
-        cancel_button_changes();
-        *key = -*key;
-    }
+//     if(clicked)
+//     {
+//         cancel_button_changes();
+//         *key = -*key;
+//     }
 
-    pos.x += 0.25;
-    draw_text(keyname, pos.xy, gui.foreground_color, {0,0}, vkon.default_font);
+//     pos.x += 0.25;
+//     draw_text(keyname, pos.xy, gui.foreground_color, {0,0}, vkon.default_font);
 
-    if(!clicked && *key < 0)
-    {
-        if(is_pressed(VK_ESCAPE, input))
-        {
-            *key = -*key;
-            input->escape_blocked = true;
-        }
-        else
-        {
-            for(int i = 1; i < 0xFF; i++)
-            {
-                if(is_pressed(i, input)) *key = i;
-            }
-        }
-    }
-}
+//     if(!clicked && *key < 0)
+//     {
+//         if(is_pressed(VK_ESCAPE, input))
+//         {
+//             *key = -*key;
+//             input->escape_blocked = true;
+//         }
+//         else
+//         {
+//             for(int i = 1; i < 0xFF; i++)
+//             {
+//                 if(is_pressed(i, input)) *key = i;
+//             }
+//         }
+//     }
+// }
 
 void do_replay_export_menu(user_input* input, real dt)
 {
@@ -687,9 +696,9 @@ void do_replay_export_menu(user_input* input, real dt)
     stunalloc(rectangles);
     stunalloc(replay_frames);
 
-    pos = {aspect_ratio-0.2f, -1.0f+thumbnail_size.y+0.1f};
+    pos = {aspect_ratio-0.3f, -1.0f+thumbnail_size.y+0.1f};
 
-    if(do_text_button(input, pos, {0.15, 0.05}, "Save Gif").clicked) {
+    if(do_text_button(input, pos, {0.25, 0.1}, "Save Gif").clicked) {
         int n_frames = export_end_frame-export_start_frame;
 
         char filename[1024]; //TODO: use date and time
@@ -726,7 +735,7 @@ bool do_pause_menu(user_input* input, real dt)
     input->hovered_ui_element = 0;
 
     // real_3 pos = {-1.0f*window_width/window_height+0.5,0.8,0};
-    real_3 pos = {0.0,-0.9,0};
+    real_3 pos = {0.0,-0.5,0};
     real center_spacing = 0.02;
 
     draw_text("Paused", pos.xy, gui.foreground_color, {0,0}, vkon.default_font);
@@ -739,77 +748,76 @@ bool do_pause_menu(user_input* input, real dt)
     do_slider(input, pos+(real_3){slider_width+center_spacing}, {slider_width, 0.03}, &settings.effects_volume, 0.0, 1.0);
     audio.effects_voice->SetVolume(settings.effects_volume);
 
-    pos.y += 0.1f;
-
-    draw_text("Music Volume", pos.xy-(real_2){center_spacing,0.0f}, gui.foreground_color, {1,0}, vkon.default_font);
-    do_slider(input, pos+(real_3){slider_width+center_spacing}, {slider_width, 0.03}, &settings.music_volume, 0.0, 1.0);
-    audio.music_voice->SetVolume(settings.music_volume);
+    // pos.y += 1.5f*spacing;
+    // draw_text("Music Volume", pos.xy-(real_2){center_spacing,0.0f}, gui.foreground_color, {1,0}, vkon.default_font);
+    // do_slider(input, pos+(real_3){slider_width+center_spacing}, {slider_width, 0.03}, &settings.music_volume, 0.0, 1.0);
+    // audio.music_voice->SetVolume(settings.music_volume);
 
     pos.x = 0.0f;
 
     real_4 old_background_color = gui.background_color;
     gui.background_color = {};
-    pos.y += 0.1f;
+    pos.y += 0.2f;
 
     char show_fps_text[256];
     sprintf(show_fps_text, settings.show_fps ? "Show fps on" : "Show fps off");
-    if(do_text_button(input, pos, {0.8, 0.05}, show_fps_text).clicked)
+    if(do_text_button(input, pos, {0.8, 0.08}, show_fps_text).clicked)
     {
         settings.show_fps = !settings.show_fps;
     }
 
-    pos.y += 0.1f;
+    pos.y += 0.2f;
 
     char fullscreen_text[256];
     sprintf(fullscreen_text, settings.fullscreen ? "Fullscreen on" : "Fullscreen off");
-    if(do_text_button(input, pos, {0.8, 0.05}, fullscreen_text).clicked)
+    if(do_text_button(input, pos, {0.8, 0.08}, fullscreen_text).clicked)
     {
         settings.fullscreen = !settings.fullscreen;
         fullscreen();
     }
-    pos.y += 0.15f;
 
-    draw_text("Controls:", pos.xy, gui.foreground_color, {0,0}, vkon.default_font);
+    // draw_text("Controls:", pos.xy, gui.foreground_color, {0,0}, vkon.default_font);
     // pos.x -= 0.25;
 
-    pos.y += 0.1f;
-    do_keybind_setting(input, "Interact", pos, {0.8, 0.05}, &settings.use_button);
+    // pos.y += spacing;
+    // do_keybind_setting(input, "Interact", pos, {0.8, 0.08}, &settings.use_button);
 
-    pos.y += 0.1f;
-    do_keybind_setting(input, "Reset", pos, {0.8, 0.05}, &settings.reset_button);
+    // pos.y += spacing;
+    // do_keybind_setting(input, "Reset", pos, {0.8, 0.08}, &settings.reset_button);
 
-    pos.y += 0.1f;
-    do_keybind_setting(input, "Up", pos, {0.8, 0.05}, &settings.up_button);
-    pos.y += 0.1f;
-    do_keybind_setting(input, "Left", pos, {0.8, 0.05}, &settings.left_button);
-    pos.y += 0.1f;
-    do_keybind_setting(input, "Down", pos, {0.8, 0.05}, &settings.down_button);
-    pos.y += 0.1f;
-    do_keybind_setting(input, "Right", pos, {0.8, 0.05}, &settings.right_button);
+    // pos.y += spacing;
+    // do_keybind_setting(input, "Up", pos, {0.8, 0.08}, &settings.up_button);
+    // pos.y += spacing;
+    // do_keybind_setting(input, "Left", pos, {0.8, 0.08}, &settings.left_button);
+    // pos.y += spacing;
+    // do_keybind_setting(input, "Down", pos, {0.8, 0.08}, &settings.down_button);
+    // pos.y += spacing;
+    // do_keybind_setting(input, "Right", pos, {0.8, 0.08}, &settings.right_button);
 
     // pos.x = 0;
 
-    pos.y += 0.1f;
-    if(do_text_button(input, pos, {0.8, 0.05}, "Continue").clicked)
+    pos.y += 0.2f;
+    if(do_text_button(input, pos, {0.8, 0.08}, "Continue").clicked)
     {
+        save_settings();
         exit_menu = true;
     }
 
-    pos.y += 0.15f;
-    if(do_text_button(input, pos, {0.8, 0.05}, "Quit").clicked)
+    pos.y += 0.2f;
+    if(do_text_button(input, pos, {0.8, 0.08}, "Quit").clicked)
     {
         save_settings();
         exit(0);
     }
 
-    // if(input->hovered_ui_element != input->old_hovered_ui_element)
-    // {
-    //     play_sound(ac, &menu_blip, 1.0);
-    // }
-    // if(is_pressed(M1, input) && input->click_blocked)
-    // {
-    //     play_sound(ac, &menu_click, 1.0);
-    // }
+    if(input->hovered_ui_element != input->old_hovered_ui_element && input->hovered_ui_element != 0)
+    {
+        play_sound(&menu_click_sound, 1.0);
+    }
+    if(is_pressed(M1, input) && input->click_blocked)
+    {
+        play_sound(&menu_click_sound, 1.0);
+    }
     input->old_hovered_ui_element = input->hovered_ui_element;
 
     gui.background_color = old_background_color;

@@ -1,0 +1,10 @@
+effects_volume = 0.200000
+music_volume = 0.200000
+show_fps = 0
+fullscreen = 0
+window_x = 1280
+window_y = 720
+resolution_x = 640
+resolution_y = 360
+gif_resolution_x = 640
+gif_resolution_y = 360

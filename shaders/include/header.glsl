@@ -42,3 +42,8 @@ vec2 hash2d(uint i)
     return vec2(float(h)/float(0xffffffffU),
                 float(hasi(h))/float(0xffffffffU));
 }
+
+float hash(vec2 x, float t)
+{
+    return 0.5+0.5*sin(2.0*pi*hash(x)+t);
+}

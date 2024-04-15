@@ -73,22 +73,15 @@ void main() {
         discard;
         return;
     }
-    float theta = 1.0*time;
-    vec3 light_pos = vec3(cos(theta), 0.0, sin(theta));
-    vec3 lr = light_pos-hit_pos;
-    vec3 normal2;
-    float light_t;
-    vec3 l = normalize(lr);
     // hit_pos += 0.1*l;
     vec3 light = vec3(1.0);
-    float ln = dot(l, normal);
     // if(ln > 0.0) {
     //     light *= shadow(hit_pos, l, length(lr), pid, light_t, hit_pos, normal2);
     // }
     vec2 depth;
     light = primitives[pid].albedo*sample_lightmap_color(hit_pos, normal, vec_to_oct(normal), depth);
     light += primitives[pid].emission;
-    frag_color.rgb = light;
+    frag_color.rgb = light*do_proc_texture(vec_to_oct(normal), primitives[pid].texture_type);
 
     frag_color.a = 1.0;
 

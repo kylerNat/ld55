@@ -16,6 +16,12 @@ VkDeviceMemory lightmap_cast_buffers_memory[MAX_QUEUED_FRAMES];
 #define LIGHTPROBE_COLOR_FORMAT VK_FORMAT_B10G11R11_UFLOAT_PACK32
 #define LIGHTPROBE_DEPTH_FORMAT VK_FORMAT_R16G16_SFLOAT
 
+// struct lightmap_push_constants
+// {
+//     int frame_number;
+//     float time;
+// };
+
 void create_lightmap_descriptor_sets()
 {
     int error = 0;
@@ -118,6 +124,11 @@ void create_lightmap_descriptor_sets()
             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+        }, {
+            .binding = 6,
+            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
         }
     };
 
@@ -171,6 +182,12 @@ void create_lightmap_descriptor_sets()
             .range = lightmap_cast_buffer_size,
         };
 
+        VkDescriptorBufferInfo global_buffer_info = {
+            .buffer = vkon.uniform_buffers[i],
+            .offset = 0,
+            .range = sizeof(global_uniform_buffer),
+        };
+
         VkWriteDescriptorSet descriptor_writes[] = {
             {
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -220,7 +237,15 @@ void create_lightmap_descriptor_sets()
                 .descriptorCount = 1,
                 .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                 .pBufferInfo = &cast_buffer_info,
-            },
+            }, {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = lightmap_descriptor_sets[i],
+                .dstBinding = 6,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .pBufferInfo = &global_buffer_info,
+            }
         };
 
         vkUpdateDescriptorSets(vkon.device, len(descriptor_writes), descriptor_writes, 0, 0);
@@ -250,18 +275,18 @@ void create_lightmap_cast_pipeline(pipeline_info* pipeline)
     int error;
 
     //pipeline layout
-    VkPushConstantRange push_constant = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(int32),
-    };
+    // VkPushConstantRange push_constant = {
+    //     .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+    //     .offset = 0,
+    //     .size = sizeof(lightmap_push_constants),
+    // };
 
     VkPipelineLayoutCreateInfo pipeline_layout_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1,
         .pSetLayouts = &lightmap_descriptor_set_layout,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &push_constant,
+        .pushConstantRangeCount = 0,
+        .pPushConstantRanges = 0,
     };
 
     error = vkCreatePipelineLayout(vkon.device, &pipeline_layout_info, 0, &pipeline->pipeline_layout);
@@ -295,18 +320,18 @@ void create_lightmap_accumulate_color_pipeline(pipeline_info* pipeline)
     int error;
 
     //pipeline layout
-    VkPushConstantRange push_constant = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(int32),
-    };
+    // VkPushConstantRange push_constant = {
+    //     .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+    //     .offset = 0,
+    //     .size = sizeof(lightmap_push_constants),
+    // };
 
     VkPipelineLayoutCreateInfo pipeline_layout_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1,
         .pSetLayouts = &lightmap_descriptor_set_layout,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &push_constant,
+        .pushConstantRangeCount = 0,
+        .pPushConstantRanges = 0,
     };
 
     error = vkCreatePipelineLayout(vkon.device, &pipeline_layout_info, 0, &pipeline->pipeline_layout);
@@ -340,18 +365,18 @@ void create_lightmap_accumulate_depth_pipeline(pipeline_info* pipeline)
     int error;
 
     //pipeline layout
-    VkPushConstantRange push_constant = {
-        .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-        .offset = 0,
-        .size = sizeof(int32),
-    };
+    // VkPushConstantRange push_constant = {
+    //     .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+    //     .offset = 0,
+    //     .size = sizeof(lightmap_push_constants),
+    // };
 
     VkPipelineLayoutCreateInfo pipeline_layout_info = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .setLayoutCount = 1,
         .pSetLayouts = &lightmap_descriptor_set_layout,
-        .pushConstantRangeCount = 1,
-        .pPushConstantRanges = &push_constant,
+        .pushConstantRangeCount = 0,
+        .pPushConstantRanges = 0,
     };
 
     error = vkCreatePipelineLayout(vkon.device, &pipeline_layout_info, 0, &pipeline->pipeline_layout);
@@ -420,8 +445,13 @@ void update_lightmap()
     vkCmdBindDescriptorSets(vkon.command_buffers[f], VK_PIPELINE_BIND_POINT_COMPUTE, lightmap_cast_pipeline->pipeline_layout, 0, 1, &lightmap_descriptor_sets[f], 0, 0);
 
     static int32 frame_number = 0;
-    vkCmdPushConstants(vkon.command_buffers[f], lightmap_cast_pipeline->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(int), &frame_number);
-    frame_number++;
+    // lightmap_push_constants pcs = {
+    //     frame_number,
+    //     vkon.time,
+    // };
+    // frame_number++;
+
+    // vkCmdPushConstants(vkon.command_buffers[f], lightmap_cast_pipeline->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(int), &pcs);
 
     vkCmdBindPipeline(vkon.command_buffers[f], VK_PIPELINE_BIND_POINT_COMPUTE, lightmap_cast_pipeline->pipeline);
     vkCmdDispatch(vkon.command_buffers[f], LIGHTMAP_CAST_DISPATCH_W, LIGHTMAP_CAST_DISPATCH_H, LIGHTMAP_CAST_DISPATCH_D);

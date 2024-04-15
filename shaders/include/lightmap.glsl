@@ -1,4 +1,5 @@
 #include "lightmap_constants.h"
+#include "maths.glsl"
 
 vec2 vec_to_oct(vec3 p)
 {
@@ -29,6 +30,7 @@ vec3 sample_lightmap_color(vec3 pos, vec3 normal, vec2 sample_oct, out vec2 dept
     vec4 irradiance_no_cheb = vec4(0);
     depth = vec2(0);
     ivec3 base_probe_pos = ivec3(floor((pos-LIGHTPROBE_OFFSET)/LIGHTPROBE_SPACING));
+    if(base_probe_pos.z >= LIGHTPROBE_GRID_D) base_probe_pos.z = LIGHTPROBE_GRID_D-1;
 
     for(int pz = 0; pz <= 1; pz++)
         for(int py = 0; py <= 1; py++)

@@ -52,16 +52,16 @@ inline real invsqrt(real a)
     return out;
 }
 
-inline float32 abs(float32 x) //if it inlines correctly this should be 1 op
-{
-    //const __m128i sign_mask = _mm_set_epi32(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF);
-    __m128 absolute_value = _mm_set_ss(x);
-    absolute_value = _mm_and_ps(absolute_value, _mm_castsi128_ps(_mm_set_epi32(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF)));//set the sign bit to 0 to get the absolute value
+// inline float32 abs(float32 x) //if it inlines correctly this should be 1 op
+// {
+//     //const __m128i sign_mask = _mm_set_epi32(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF);
+//     __m128 absolute_value = _mm_set_ss(x);
+//     absolute_value = _mm_and_ps(absolute_value, _mm_castsi128_ps(_mm_set_epi32(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0x7FFFFFFF)));//set the sign bit to 0 to get the absolute value
 
-    float32 out;
-    _mm_store_ss(&out, absolute_value);
-    return out;
-}
+//     float32 out;
+//     _mm_store_ss(&out, absolute_value);
+//     return out;
+// }
 
 // inline int abs(int x) {
 //     return x >= 0 ? x : -x;

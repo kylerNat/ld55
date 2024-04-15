@@ -1,8 +1,8 @@
 #ifndef AABB
 #define AABB
 
-#define MAX_AABB_NODES 4096
-#define MAX_AABB_PRIMITIVES 2048
+#define MAX_AABB_NODES 0
+#define MAX_AABB_PRIMITIVES 65536
 
 struct aabb_t {
     alignas(16) real_3 l;
@@ -40,7 +40,6 @@ real_3 aabb_size(aabb_t box) {
     return 0.5*(box.u-box.l);
 }
 
-
 enum PRIMITIVE_TYPE {
     PRIM_NONE,
     PRIM_SPHERE,
@@ -49,6 +48,8 @@ enum PRIMITIVE_TYPE {
     PRIM_BOX,
     N_PRIMITIVE_TYPES
 };
+
+#include "../shaders/include/texture_types.h"
 
 #pragma pack(push, 1)
 struct aabb_node {
@@ -74,7 +75,7 @@ struct primitive_t {
     alignas(16) real_3 omega;
     alignas(16) real_3 albedo;
     alignas(16) real_3 emission;
-    int32 entity_id;
+    int texture_type;
 };
 
 #define which_child(pid) (pid < 0)
@@ -336,13 +337,13 @@ aabb_t enlarged_aabb(primitive_t* p)
     return aabb;
 }
 
-void insert_primitive(aabb_tree* tree, int primitive_id)
-{
-    primitive_t* p = tree->primitives+primitive_id-1;
-    calculate_aabb(p);
-    aabb_node* node = new_leaf(tree, enlarged_aabb(p), primitive_id);
-    p->node = (node-tree->nodes)+1;
-    node->entity_id = p->entity_id;
-}
+// void insert_primitive(aabb_tree* tree, int primitive_id)
+// {
+//     primitive_t* p = tree->primitives+primitive_id-1;
+//     calculate_aabb(p);
+//     aabb_node* node = new_leaf(tree, enlarged_aabb(p), primitive_id);
+//     p->node = (node-tree->nodes)+1;
+//     node->entity_id = p->entity_id;
+// }
 
 #endif //AABB

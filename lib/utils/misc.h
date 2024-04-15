@@ -64,7 +64,8 @@ typedef float real;
 #define def_minmax(type)                                \
     type min(type a, type b) {return (a < b) ? a : b;} \
     type max(type a, type b) {return (a > b) ? a : b;} \
-    type clamp(type t, type a, type b) {return max((a), min((b), (t)));}
+    type clamp(type t, type a, type b) {return max((a), min((b), (t)));}\
+    type clamp_##type(type t, type a, type b) {return max((a), min((b), (t)));}
 
 def_minmax(int)
 def_minmax(uint)

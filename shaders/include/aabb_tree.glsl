@@ -14,6 +14,45 @@ struct aabb_t {
 #define PRIM_DISC    3
 #define PRIM_BOX     4
 
+#include "texture_types.h"
+
+float noise(vec2 p, float t)
+{
+    vec2 i = floor(p);
+    vec2 f = p-i;
+    float v = 0.0;
+    vec2 s = f*f*(3.0-2.0*f);
+    vec2 e = vec2(0.0, 1.0);
+    v = mix(mix(hash(i+e.xx, t), hash(i+e.yx, t), s.x),
+            mix(hash(i+e.xy, t), hash(i+e.yy, t), s.x), s.y);
+    return v;
+}
+
+float fbm(vec2 p, float t)
+{
+    float v = 0.0;
+    float s = 0.5;
+    mat2 scale = 2.0*mat2(0.8,-0.6,0.6,0.8);
+    for(int i = 0; i < 5; i++) {
+        v += s*noise(p, t);
+        s *= 0.5;
+        p *= scale;
+    }
+    return v;
+}
+
+vec3 do_proc_texture(vec2 p, int texture_type) {
+    switch(texture_type) {
+        default:
+        case TEX_PLAIN: {
+            return vec3(1.0);
+        } break;
+        case TEX_FIREBALL: {
+            return vec3(1.0, fbm(10.0*p, 10.0*time), 1.0);
+        } break;
+    }
+}
+
 struct primitive_t {
     aabb_t aabb;
     int node;
@@ -28,12 +67,13 @@ struct primitive_t {
     //TODO: probably just want to have material id with a separate material table
     vec3 albedo;
     vec3 emission;
+    int texture_type;
 };
 
 #ifndef CUSTOM_SSBO
 layout(std140, binding = 2) readonly buffer ssbo {
     int n_primitives;
-    primitive_t primitives[1024];
+    primitive_t primitives[65536];
 };
 
 ///////////////raycast code///////////////////
@@ -341,16 +381,90 @@ vec3 aabb_size(aabb_t box) {
     return 0.5*(box.u-box.l);
 }
 
-bool cast_ray(vec3 p, vec3 d, float max_t, int ignore_primitive, out float hit_t, out vec3 hit_pos, out vec3 normal, out int hit_index)
+vec3 get_floor_albedo(vec2 p)
+{
+    return vec3(0.0);
+}
+
+vec3 get_floor_emission(vec2 p)
+{
+    vec3 color = vec3(0.6+0.2*sin(10.0*time),0.0,0.0);
+
+    float s = 10000.0;
+    float r = length(p);
+    float R = 12.0;
+    if(r > R+5.5) return vec3(0.0);
+    float a = R*cos(0.4*pi);
+    float b = a/cos(0.2*pi);
+    float T = 0.25;
+    s = min(s, abs(r-R-0.8)-T);
+    s = min(s, abs(r-R+0.8)-T);
+    // s = min(s, abs(r-0.5*a)-T);
+    for(float i = 0.0; i < 4.5; i++) {
+        float theta = i*pi*0.4;
+        vec2 n = vec2(cos(theta), sin(theta));
+        float l = dot(n, p);
+        s = min(s, max(abs(l-a)-T, r-R));
+    }
+    {
+        float i = round(atan(p.y, p.x)/(0.4*pi));
+        if(i < 0.0) i += 5.0;
+        float theta = i*pi*0.4;
+        vec2 c = R*vec2(cos(theta), sin(theta));
+
+        float t = abs(length(p-c)-3.0)-T;
+        if(t < 0.0) {
+            if(i == float(selected)) color = mix(color, vec3(0.8), 0.5+0.5*sin(5.0*time));
+            if(i == float(hovered)) color = mix(color, vec3(1.0), 0.5);
+            s = min(s, t);
+        }
+        s = max(s, 3.0-T-length(p-c));
+        // if(i == 0.0)
+        //     s = min(s, length(p-c)-T);
+    }
+    {
+        int i = 6;
+        vec2 c = vec2(0.0);
+        float t = abs(length(p-c)-4.5)-T;
+        if(t < 0.0) {
+            if(i == selected) color = mix(color, vec3(0.8), 0.5+0.5*sin(5.0*time));
+            if(i == hovered)  color = mix(color, vec3(1.0), 0.5);
+            s = min(s, t);
+        }
+        s = max(s, 4.5-T-length(p-c));
+    }
+    return color*step(0.0, -s);
+}
+
+bool raycast_floor(vec3 p, vec3 d, inout float hit_t, inout vec3 hit_pos, inout vec3 normal, inout vec3 albedo, out vec3 emission)
+{
+    float t = -p.z/d.z;
+    if(t > 0.0 && t < hit_t) {
+        hit_t = t;
+        hit_pos = p+t*d;
+        normal = vec3(0.0,0.0,1.0);
+        albedo = get_floor_albedo(hit_pos.xy);
+        emission = get_floor_emission(hit_pos.xy);
+        return true;
+    }
+    return false;
+}
+
+bool cast_ray(vec3 p, vec3 d, float max_t, int ignore_primitive, out float hit_t, out vec3 hit_pos, out vec3 normal, inout vec3 albedo, inout vec3 emission)
 {
     hit_t = max_t;
 
     bool did_hit = false;
 
+    did_hit = raycast_floor(p, d, hit_t, hit_pos, normal, albedo, emission);
+
     for(int i = 0; i < n_primitives; i++) {
         if(i != ignore_primitive) {
             bool hit_primitive = raycast_primitive(i, p, d, hit_t, hit_pos, normal);
-            if(hit_primitive) hit_index = i;
+            if(hit_primitive) {
+                albedo = primitives[i].albedo;
+                emission = primitives[i].emission;
+            }
             did_hit = hit_primitive || did_hit;
         }
     }

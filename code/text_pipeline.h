@@ -161,7 +161,7 @@ void create_text_pipeline(pipeline_info* pipeline)
         .pColorBlendState = &color_blending,
         .pDynamicState = &dynamic_state,
         .layout = pipeline->pipeline_layout,
-        .renderPass = vkon.render_pass,
+        .renderPass = vkon.ui_render_pass,
         .subpass = 0,
     };
 
@@ -182,6 +182,7 @@ real_2 get_text_center(char* text, font_info font)
 
     real current_x = 0;
     real current_y = 0;
+    real min_x = 0;
     real max_x = 0;
     real max_y = 0;
     real min_y = 0;
@@ -196,11 +197,12 @@ real_2 get_text_center(char* text, font_info font)
         stbtt_aligned_quad quad = {};
         stbtt_GetPackedQuad(font.char_data, font_resolution, font_resolution, *c,
                             &current_x, &current_y, &quad, false);
-        max_x = max(max_x, current_x);
-        min_y = min(min_y, current_y+descent*scale);
+        min_x = min(min_x, quad.x0);
+        max_x = max(max_x, quad.x1);
+        min_y = min(min_y, current_y-descent*scale);
         max_y = max(max_y, current_y+ascent*scale);
     }
-    return {0.5f*max_x, 0.5f*(max_y+min_y)};
+    return {0.5f*(max_x+min_x), 0.5f*(max_y+min_y)};
 }
 
 real_2 get_text_size(char* text, font_info font)
@@ -211,6 +213,7 @@ real_2 get_text_size(char* text, font_info font)
 
     real current_x = 0;
     real current_y = 0;
+    real min_x = 0;
     real max_x = 0;
     real max_y = 0;
     real min_y = 0;
@@ -225,11 +228,16 @@ real_2 get_text_size(char* text, font_info font)
         stbtt_aligned_quad quad = {};
         stbtt_GetPackedQuad(font.char_data, font_resolution, font_resolution, *c,
                             &current_x, &current_y, &quad, false);
-        max_x = max(max_x, current_x);
-        min_y = min(min_y, current_y+descent*scale);
-        max_y = max(max_y, current_y+ascent*scale);
+        min_x = min(min_x, quad.x0);
+        max_x = max(max_x, quad.x1);
+        // min_y = min(min_y, current_y+descent*scale);
+        // max_y = max(max_y, current_y+ascent*scale);
+        min_y = min(min_y, quad.y0);
+        max_y = max(max_y, quad.y1);
     }
-    return {2.0f*max_x/vkon.render_resolution.y, 2.0f*(max_y+min_y)/vkon.render_resolution.y};
+    real w = 1920.0f;
+    real h = 1080.0f;
+    return {2.0f*(max_x-min_x)/h, 2.0f*(max_y-min_y)/h};
 }
 
 void draw_text(char* text, real_2 p, real_4 color, real_2 alignment, font_info font)
@@ -269,11 +277,15 @@ void draw_text(char* text, real_2 p, real_4 color, real_2 alignment, font_info f
             stbtt_aligned_quad quad = {};
             stbtt_GetPackedQuad(font.char_data, font_resolution, font_resolution, char_index,
                                 &current_x, &current_y, &quad, false);
+            // quad.y0 -= 10.0;
+            // quad.y1 -= 10.0;
+            real w = 1920.0f;
+            real h = 1080.0f;
             vertex_buffer[n_verts++] = {
-                {p.x/vkon.aspect_ratio + quad.x0*2.0f/vkon.render_resolution.x,
-                 p.y                   + quad.y0*2.0f/vkon.render_resolution.y},
-                {p.x/vkon.aspect_ratio + quad.x1*2.0f/vkon.render_resolution.x,
-                 p.y                   + quad.y1*2.0f/vkon.render_resolution.y},
+                {p.x/vkon.aspect_ratio + quad.x0*2.0f/w,
+                 p.y                   + quad.y0*2.0f/h},
+                {p.x/vkon.aspect_ratio + quad.x1*2.0f/w,
+                 p.y                   + quad.y1*2.0f/h},
                 {quad.s0, quad.t0},
                 {quad.s1, quad.t1},
                 color,
@@ -284,4 +296,75 @@ void draw_text(char* text, real_2 p, real_4 color, real_2 alignment, font_info f
 
     vkCmdBindPipeline(vkon.command_buffers[f], VK_PIPELINE_BIND_POINT_GRAPHICS, text_pipeline->pipeline);
     vkCmdDraw(vkon.command_buffers[f], 4, n_verts, 0, start_index);
+}
+
+uint32 batched_text_start_index;
+text_render_info* batched_text_vertex_buffer;
+uint32 batched_text_n_verts;
+void draw_text_batched_start()
+{
+    uint32 f = vkon.current_frame;
+
+    batched_text_start_index = (vkon.dynamic_vertex_buffers_used[f]+sizeof(text_render_info)-1)/sizeof(text_render_info);
+    batched_text_vertex_buffer = (text_render_info*) vkon.dynamic_vertex_buffers_mapped[f]+batched_text_start_index;
+    batched_text_n_verts = 0;
+}
+
+void draw_text_batched(char* text, real_2 p, real_4 color, real_2 alignment, font_info font)
+{
+    {
+        real x_base = 0.5*p.x;
+        real y_base = 0.5*p.y;
+
+        real_2 center_offset = get_text_center(text, font);
+        x_base -= (alignment.x+1)*center_offset.x;
+        y_base -= (alignment.y+1)*center_offset.y;
+
+        int ascent, descent, line_gap = 0;
+        stbtt_GetFontVMetrics(&font.info, &ascent, &descent, &line_gap);
+        real scale = stbtt_ScaleForPixelHeight(&font.info, font.size);
+        y_base += scale*ascent;
+
+        real current_x = x_base;
+        real current_y = y_base;
+        for(unsigned char* c = (unsigned char*) text; *c; c++) {
+            if(*c == '\n') {
+                current_x = x_base;
+                current_y += font.size;
+                continue;
+            }
+            int char_index = *c;
+            if(char_index >= 0x80) {
+                char_index &= 0x1F;
+                char_index *= 0x40;
+                char_index += (*(++c))&0x3F;
+            }
+            stbtt_aligned_quad quad = {};
+            stbtt_GetPackedQuad(font.char_data, font_resolution, font_resolution, char_index,
+                                &current_x, &current_y, &quad, false);
+            // quad.y0 -= 10.0;
+            // quad.y1 -= 10.0;
+            real w = 1920.0f;
+            real h = 1080.0f;
+            batched_text_vertex_buffer[batched_text_n_verts++] = {
+                {p.x/vkon.aspect_ratio + quad.x0*2.0f/w,
+                 p.y                   + quad.y0*2.0f/h},
+                {p.x/vkon.aspect_ratio + quad.x1*2.0f/w,
+                 p.y                   + quad.y1*2.0f/h},
+                {quad.s0, quad.t0},
+                {quad.s1, quad.t1},
+                color,
+            };
+        }
+    }
+}
+
+void draw_text_batched_end()
+{
+    uint32 f = vkon.current_frame;
+
+    vkon.dynamic_vertex_buffers_used[f] = (batched_text_start_index+batched_text_n_verts)*sizeof(text_render_info);
+
+    vkCmdBindPipeline(vkon.command_buffers[f], VK_PIPELINE_BIND_POINT_GRAPHICS, text_pipeline->pipeline);
+    vkCmdDraw(vkon.command_buffers[f], 4, batched_text_n_verts, 0, batched_text_start_index);
 }

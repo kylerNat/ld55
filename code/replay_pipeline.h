@@ -314,7 +314,7 @@ void create_draw_replay_pipeline(pipeline_info* pipeline)
         .pColorBlendState = &color_blending,
         .pDynamicState = &dynamic_state,
         .layout = pipeline->pipeline_layout,
-        .renderPass = vkon.render_pass,
+        .renderPass = vkon.ui_render_pass,
         .subpass = 0,
     };
 

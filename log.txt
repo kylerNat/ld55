@@ -1,3 +1,4 @@
+max_synonyms: 27
 available vulkan extensions:
 	VK_KHR_device_group_creation
 	VK_KHR_external_fence_capabilities
@@ -19,5 +20,5 @@ available devices:
 	0: Quadro M2200
 	1: Intel(R) HD Graphics P630
 using device 0
-p: (2.410266, 1.357294, -1.058195), o: (0.163948, 0.685237, 0.174602, 0.687556)
-p: (2.422688, 1.135707, -1.133945), o: (-0.664649, 0.183966, -0.329990, -0.644316)
+warning: could not open data/translations.tsv
+

@@ -1,4 +1,5 @@
 #include "include/header.glsl"
+#define UBO_BINDING 6
 #include "include/global_uniforms.glsl"
 #include "include/aabb_tree.glsl"
 
@@ -9,10 +10,6 @@ layout (local_size_x = LIGHTMAP_ACCUMULATE_DEPTH_LOCAL_W, local_size_y = LIGHTMA
 
 layout(binding = 1, rg32f) uniform writeonly image2D lightmap_depth_out;
 layout(binding = 4) uniform sampler2D lightmap_depth;
-
-layout(push_constant) uniform constants {
-    int frame_number;
-};
 
 struct cast_result {
     vec3 color;

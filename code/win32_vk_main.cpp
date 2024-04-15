@@ -57,6 +57,12 @@ void STB_assert(int x) {assert(x);}
 #undef R
 #undef C
 
+//eww, I got std's
+#include <string>
+#include "levenshtein-sse.hpp"
+
+#undef abs
+#undef swap
 #undef assert
 
 #include <maths/maths.h>
@@ -234,12 +240,12 @@ window_t create_window(char* window_title, char* class_name, int width, int heig
         wc.cbClsExtra = 0;
         wc.cbWndExtra = 0;
         wc.hInstance = hinstance;
-        wc.hIcon = LoadIcon(0, IDI_APPLICATION);
+        wc.hIcon = LoadIcon(hinstance, MAKEINTRESOURCE(123));
         wc.hCursor = LoadCursor(0, IDC_ARROW);
         wc.hbrBackground = (HBRUSH)(COLOR_WINDOW+1);
         wc.lpszMenuName = 0;
         wc.lpszClassName = class_name;
-        wc.hIconSm = LoadIcon(0, IDI_APPLICATION);
+        wc.hIconSm = LoadIcon(hinstance, MAKEINTRESOURCE(123));
 
         error = RegisterClassEx(&wc);
         assert(error, "window registration failed");
@@ -381,20 +387,12 @@ int update_window(window_t* wnd)
                         // }
 
                         //usButtonFlags can have more than one input at a time
-                        #ifdef IMGUI_VERSION
-                        #define update_numbered_button(N)               \
-                            if(ms.usButtonFlags & RI_MOUSE_BUTTON_##N##_DOWN) \
-                            { wnd->input.pressed_buttons[0] |= 1<<M##N; wnd->input.buttons[0] |= 1<<M##N;    io.AddMouseButtonEvent(N-1,  true); } \
-                            else if(ms.usButtonFlags & RI_MOUSE_BUTTON_##N##_UP) \
-                            { wnd->input.released_buttons[0] |= 1<<M##N; wnd->input.buttons[0] &= ~(1<<M##N); io.AddMouseButtonEvent(N-1, false); }
-                        #else
+
                         #define update_numbered_button(N)               \
                             if(ms.usButtonFlags & RI_MOUSE_BUTTON_##N##_DOWN) \
                             { wnd->input.pressed_buttons[0] |= 1<<M##N; wnd->input.buttons[0] |= 1<<M##N; } \
                             else if(ms.usButtonFlags & RI_MOUSE_BUTTON_##N##_UP) \
                             { wnd->input.released_buttons[0] |= 1<<M##N; wnd->input.buttons[0] &= ~(1<<M##N); }
-                        #endif
-
                         update_numbered_button(1);
                         update_numbered_button(2);
                         update_numbered_button(3);
@@ -446,24 +444,9 @@ int update_window(window_t* wnd)
                         if(keyup) set_key_up(kb.VKey, wnd->input);
                         else    set_key_down(kb.VKey, wnd->input);
 
-                        #ifdef IMGUI_VERSION
-                        ImGuiKey imgui_key = ImGui_ImplWin32_VirtualKeyToImGuiKey(kb.VKey);
-                        if(imgui_key != ImGuiKey_None)
-                        {
-                            io.AddKeyEvent(imgui_key, !keyup);
+                        if(wnd->input.n_typed < len(wnd->input.typed)) {
+                            if(is_pressed(kb.VKey, &wnd->input)) wnd->input.typed[wnd->input.n_typed++] = kb.VKey;
                         }
-                        char c = kb.VKey;
-                        if(c == VK_SPACE) c = ' ';
-                        else if(c == VK_RETURN) c = '\n';
-                        else if('A' <= c && c <= 'Z') {c += 'a'-'A';}
-                        else if('0' <= c && c <= '9'){}
-                        else c = 0;
-
-                        if(c != 0)
-                        {
-                            if(is_pressed(kb.VKey, &wnd->input)) io.AddInputCharacter(kb.VKey);
-                        }
-                        #endif
                         break;
                     }
                 }
@@ -526,28 +509,24 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE hPrevInstance,
     #endif
     logfile = fopen("log.txt", "w");
 
+    load_wordnet();
+
     settings = (settings_t) {
         .effects_volume = 0.2,
         .music_volume = 0.2,
-        .use_button = ' ',
-        .right_button = 'D',
-        .up_button = 'W',
-        .left_button = 'A',
-        .down_button = 'S',
-        .reset_button = 'R',
         .show_fps = false,
         .fullscreen = false,
         .window_x = 1280,
         .window_y = 720,
-        .resolution_x = 1280,
-        .resolution_y = 720,
+        .resolution_x = 640,
+        .resolution_y = 360,
         .gif_resolution_x = 640,
         .gif_resolution_y = 360,
-        .hub_unlocked = false,
     };
     load_settings();
 
     vkon.render_resolution = {settings.resolution_x, settings.resolution_y};
+    vkon.ui_resolution = {settings.window_x, settings.window_y};
     vkon.replay_resolution = {settings.gif_resolution_x, settings.gif_resolution_y};
     vkon.max_replay_frames = 600;
     vkon.replay_centiseconds = 3;
@@ -563,20 +542,13 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE hPrevInstance,
     // w.entity_savefile = open_file("entities.dat");
 
 
-    vkon.fov = pi*120.0f/180.0f;
+    vkon.fov = pi*30.0f/180.0f;
 
     gui = {
         .background_color = {0.001,0.001,0.001,1},
         .foreground_color = {1,1,1,1},
-        .highlight_color = {0.1,0.1,0.1,1},
+        .highlight_color = {0.1,0.1,0.1,0.5},
     };
-
-    render_context ui = {
-        .background_color = {0.001,0.001,0.001,1},
-        .foreground_color = {1,1,1,1},
-        .highlight_color = {0.1,0.1,0.1,1},
-    };
-    init_render_context(&ui, {settings.resolution_x, settings.resolution_y});
 
     replay_buffer rb = {};
     init_replay_buffer(&rb, {640, 360}, 1200);
@@ -584,13 +556,7 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE hPrevInstance,
     // load_sprites();
 
     init_audio_context();
-
-    ui.camera = {
-        1.0/vkon.aspect_ratio, 0, 0, 0,
-        0, 1, 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1,
-    };
+    load_sounds();
 
     work_stack = (work_task*) stalloc(1024*sizeof(work_task));
     n_work_entries = 0;
@@ -646,16 +612,10 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE hPrevInstance,
 
     bool step_mode = false;
 
-    sound_t test_sound = load_ogg("data/sounds/kick.ogg");
-
     real Deltat = 0;
     //TODO: make render loop evenly sample inputs when vsynced
     while(update_window(&wnd))
     {
-        update_camera_matrix();
-
-        if(is_pressed(VK_F1, &wnd.input)) settings.show_fps = !settings.show_fps;
-
         wnd.last_time = wnd.this_time;
         QueryPerformanceCounter(&wnd.this_time);
 
@@ -663,7 +623,7 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE hPrevInstance,
         Deltat += vkon.frame_time;
         bool did_game_update = false;
 
-        if(is_pressed('4', &wnd.input)) play_sound(&test_sound, 1.0f);
+        if(is_pressed('4', &wnd.input)) play_sound(&explosion_sound, 1.0f);
 
         FILETIME filetime;
         GetFileTime(shader_dir, 0, 0, &filetime);
@@ -678,17 +638,24 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE hPrevInstance,
 
         int n_game_updates = 0;
         game.paused = game.replay_mode || game.pause_menu;
+
+        if(game.pause_menu) vkon.ui_clear_color = {0,0,0,0.7f};
+        else                vkon.ui_clear_color = {0,0,0,0};
         if(!game.paused)
         {
             if(Deltat > game_dt)
             {
                 game.replay_mode = game.replay_mode!=is_pressed(VK_F11, &wnd.input);
                 game.pause_menu = game.pause_menu!=is_pressed(VK_ESCAPE, &wnd.input);
+                if(is_pressed(VK_F1, &wnd.input)) settings.show_fps = !settings.show_fps;
 
                 Deltat -= game_dt;
 
-                update_game(&wnd.input);
-                reset_input_state(&wnd.input);
+                if(game.speed_multiplier <= 0) game.speed_multiplier = 1;
+                for(int i = 0; i < game.speed_multiplier; i++) {
+                    update_game(&wnd.input);
+                    reset_input_state(&wnd.input);
+                }
 
                 n_game_updates++;
                 did_game_update = true;
@@ -703,6 +670,7 @@ int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE hPrevInstance,
         }
         else
         {
+            if(is_pressed(VK_F1, &wnd.input)) settings.show_fps = !settings.show_fps;
             if(is_pressed(VK_ESCAPE, &wnd.input) || is_pressed(VK_F11, &wnd.input)) {
                 game.pause_menu = false;
                 game.replay_mode = false;

@@ -187,26 +187,12 @@ struct texture_t {
     VkImageView image_view;
 };
 
-#define font_resolution 1024
+#define font_resolution 2048
 
 struct font_info {
-    texture_t texture;
     stbtt_fontinfo info;
     stbtt_packedchar* char_data;
     real size;
-};
-
-struct render_context {
-    real fov;
-    real_3 camera_pos;
-    real_3x3 camera_axes;
-    real_4x4 camera; //full matrix with perspective and projection
-
-    real_4 background_color;
-    real_4 foreground_color;
-    real_4 highlight_color;
-
-    int_2 resolution;
 };
 
 const int MAX_QUEUED_FRAMES = 2;
@@ -254,9 +240,17 @@ struct vulkan_context {
     VkImageView depth_image_view;
     VkFramebuffer render_framebuffer;
 
+    VkImage ui_color_image;
+    VkImageView ui_color_image_view;
+    VkDeviceMemory ui_color_image_memory;
+    VkImage ui_depth_image;
+    VkDeviceMemory ui_depth_image_memory;
+    VkImageView ui_depth_image_view;
+    VkFramebuffer ui_framebuffer;
+
     VkRenderPass render_pass;
+    VkRenderPass ui_render_pass;
     VkPipelineLayout pipeline_layout;
-    VkPipeline graphics_pipeline;
 
     VkCommandPool command_pool;
     VkCommandBuffer command_buffers[MAX_QUEUED_FRAMES];
@@ -272,14 +266,6 @@ struct vulkan_context {
 
     uint32 current_frame;
 
-    //
-    VkBuffer staging_buffer;
-    VkDeviceMemory staging_buffer_memory;
-    VkBuffer vertex_buffer;
-    VkDeviceMemory vertex_buffer_memory;
-    VkBuffer index_buffer;
-    VkDeviceMemory index_buffer_memory;
-
     VkBuffer dynamic_vertex_buffers[MAX_QUEUED_FRAMES];
     VkDeviceMemory dynamic_vertex_buffers_memory[MAX_QUEUED_FRAMES];
     void* dynamic_vertex_buffers_mapped[MAX_QUEUED_FRAMES];
@@ -293,7 +279,6 @@ struct vulkan_context {
     VkDeviceMemory shader_storage_buffers_memory[MAX_QUEUED_FRAMES];
     void* shader_storage_buffers_mapped[MAX_QUEUED_FRAMES];
 
-    texture_t test_texture;
     VkSampler texture_sampler;
 
     VkDescriptorSetLayout global_descriptor_set_layout;
@@ -308,6 +293,9 @@ struct vulkan_context {
     VkDescriptorPool descriptor_pool;
 
     int_2 render_resolution;
+    int_2 ui_resolution;
+
+    VkClearColorValue ui_clear_color;
 
     real aspect_ratio;
     real fov;
@@ -317,6 +305,9 @@ struct vulkan_context {
     real time;
 
     font_info default_font;
+    font_info symbols_font;
+
+    texture_t font_texture;
 
     real frame_time;
 };
@@ -599,12 +590,26 @@ texture_t load_image_to_texture(char* filename)
     return texture;
 }
 
-font_info load_font(char* font_filename, real font_size)
+void start_loading_fonts(stbtt_pack_context* spc, uint8* pixels)
+{
+    int error = 0;
+    error = stbtt_PackBegin(spc, pixels, font_resolution, font_resolution, 0, 1, 0);
+    assert(error);
+
+    stbtt_PackSetOversampling(spc, 2, 2);
+}
+
+void end_loading_fonts(stbtt_pack_context* spc, uint8* pixels)
+{
+    stbtt_PackEnd(spc);
+
+    vkon.font_texture = create_texture({font_resolution, font_resolution}, pixels, VK_FORMAT_R8_SRGB);
+}
+
+font_info load_font(stbtt_pack_context* spc, char* font_filename, real font_size, real flip)
 {
     uint8* font_data = (uint8*) load_file_0_terminated(font_filename);
     int error = 0;
-
-    stbtt_pack_context spc = {};
 
     int num_chars = 1024;
     stbtt_pack_range ranges[] = {
@@ -612,17 +617,10 @@ font_info load_font(char* font_filename, real font_size)
             .font_size = font_size,
             .first_unicode_codepoint_in_range = 0,
             .num_chars = num_chars,
-            .chardata_for_range = (stbtt_packedchar*) stalloc_clear(sizeof(stbtt_packedchar)*num_chars),
+            .chardata_for_range = (stbtt_packedchar*) dynamic_alloc_clear(sizeof(stbtt_packedchar)*num_chars),
         },
     };
 
-    uint8* pixels = (uint8*) stalloc(4*sq(font_resolution));
-
-    error = stbtt_PackBegin(&spc, pixels, font_resolution, font_resolution, 0, 1, 0);
-    assert(error);
-
-    stbtt_PackSetOversampling(&spc, 2, 2);
-    // error = stbtt_PackFontRanges(&spc, font_data, 0, ranges, len(ranges));
     //expanding out stbtt_PackFontRanges so we can get out the stbtt_fontinfo
     stbtt_fontinfo info;
     int font_index = 0;
@@ -634,30 +632,28 @@ font_info load_font(char* font_filename, real font_size)
         for (i=0; i < len(ranges); ++i)
             n += ranges[i].num_chars;
 
-        rects = (stbrp_rect *) STBTT_malloc(sizeof(*rects) * n, spc.user_allocator_context);
+        rects = (stbrp_rect *) STBTT_malloc(sizeof(*rects) * n, spc->user_allocator_context);
         assert(rects, "could not allocate font rects");
 
-        info.userdata = spc.user_allocator_context;
+        info.userdata = spc->user_allocator_context;
         stbtt_InitFont(&info, font_data, stbtt_GetFontOffsetForIndex(font_data,font_index));
 
-        n = stbtt_PackFontRangesGatherRects(&spc, &info, ranges, len(ranges), rects);
+        n = stbtt_PackFontRangesGatherRects(spc, &info, ranges, len(ranges), rects);
 
-        stbtt_PackFontRangesPackRects(&spc, rects, n);
+        stbtt_PackFontRangesPackRects(spc, rects, n);
 
-        return_value = stbtt_PackFontRangesRenderIntoRects(&spc, &info, ranges, len(ranges), rects);
+        return_value = stbtt_PackFontRangesRenderIntoRects(spc, &info, ranges, len(ranges), rects);
 
-        STBTT_free(rects, spc.user_allocator_context);
+        STBTT_free(rects, spc->user_allocator_context);
         error = return_value;
     }
     assert(error);
 
-    stbtt_PackEnd(&spc);
+    for(int i = 0; i < num_chars; i++) {
+        ranges[0].chardata_for_range[i].xadvance *= flip;
+    }
 
-    texture_t font_texture = create_texture({font_resolution, font_resolution}, pixels, VK_FORMAT_R8_SRGB);
-
-    stunalloc(pixels);
-
-    return {font_texture, info, ranges[0].chardata_for_range, font_size};
+    return {info, ranges[0].chardata_for_range, font_size};
 }
 
 VkShaderModule create_shader_module(const uint32_t* code, size_t code_size)
@@ -703,6 +699,10 @@ struct global_uniform_buffer {
     real fov;
     real aspect_ratio;
     real time;
+    int frame_number;
+
+    int selected;
+    int hovered;
 };
 
 struct global_ssbo {
@@ -746,6 +746,7 @@ void cleanup_pipeline(pipeline_info pipeline)
 #include "rectangle_pipeline.h"
 #include "sphere_pipeline.h"
 #include "world_pipeline.h"
+#include "floor_pipeline.h"
 #include "lightmap_pipeline.h"
 #include "lightprobe_visualization_pipeline.h"
 #include "aabb_visualization_pipeline.h"
@@ -759,7 +760,6 @@ void cleanup_pipelines()
         cleanup_pipeline(pipeline_list[i]);
     }
 
-    vkDestroyPipeline(vkon.device, vkon.graphics_pipeline, 0);
     vkDestroyPipelineLayout(vkon.device, vkon.pipeline_layout, 0);
 }
 
@@ -906,6 +906,63 @@ void cleanup_render_framebuffer()
     vkDestroyImageView(vkon.device, vkon.color_image_view, 0);
     vkDestroyImage(vkon.device, vkon.color_image, 0);
     vkFreeMemory(vkon.device, vkon.color_image_memory, 0);
+}
+
+void create_ui_framebuffer()
+{
+    int error = 0;
+
+    //color buffer
+    create_image(vkon.ui_resolution.x, vkon.ui_resolution.y,
+                 COLOR_FORMAT,
+                 VK_IMAGE_TILING_OPTIMAL,
+                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                 &vkon.ui_color_image,
+                 &vkon.ui_color_image_memory);
+    vkon.ui_color_image_view = create_image_view(vkon.ui_color_image, COLOR_FORMAT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+    //depth buffer
+    create_image(vkon.ui_resolution.x, vkon.ui_resolution.y,
+                 DEPTH_FORMAT,
+                 VK_IMAGE_TILING_OPTIMAL,
+                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                 &vkon.ui_depth_image,
+                 &vkon.ui_depth_image_memory);
+    vkon.ui_depth_image_view = create_image_view(vkon.ui_depth_image, DEPTH_FORMAT, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    //framebuffer
+    VkImageView attachments[] = {
+        vkon.ui_color_image_view,
+        vkon.ui_depth_image_view,
+    };
+
+    VkFramebufferCreateInfo framebuffer_info = {
+        .sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+        .renderPass = vkon.ui_render_pass,
+        .attachmentCount = len(attachments),
+        .pAttachments = attachments,
+        .width = vkon.ui_resolution.x,
+        .height = vkon.ui_resolution.y,
+        .layers = 1,
+    };
+
+    error = vkCreateFramebuffer(vkon.device, &framebuffer_info, 0, &vkon.ui_framebuffer);
+    vk_assert("could not create render framebuffer");
+}
+
+void cleanup_ui_framebuffer()
+{
+    vkDestroyFramebuffer(vkon.device, vkon.ui_framebuffer, 0);
+
+    vkDestroyImageView(vkon.device, vkon.ui_depth_image_view, 0);
+    vkDestroyImage(vkon.device, vkon.ui_depth_image, 0);
+    vkFreeMemory(vkon.device, vkon.ui_depth_image_memory, 0);
+
+    vkDestroyImageView(vkon.device, vkon.ui_color_image_view, 0);
+    vkDestroyImage(vkon.device, vkon.ui_color_image, 0);
+    vkFreeMemory(vkon.device, vkon.ui_color_image_memory, 0);
 }
 
 void create_replay_framebuffers()
@@ -1220,7 +1277,32 @@ void recreate_swapchain()
 
     if(vkon.swapchain_valid) cleanup_swapchain();
     error = create_swapchain();
-    if(error) create_swapchain_framebuffers();
+    if(error) {
+        create_swapchain_framebuffers();
+        cleanup_ui_framebuffer();
+        vkon.ui_resolution = {vkon.swapchain_extent.width, vkon.swapchain_extent.height};
+        create_ui_framebuffer();
+
+        VkDescriptorImageInfo ui_image_info = {
+            .sampler = vkon.texture_sampler,
+            .imageView = vkon.ui_color_image_view,
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        };
+
+        VkWriteDescriptorSet descriptor_writes[] = {
+            {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = vkon.postprocess_descriptor_set,
+                .dstBinding = 1,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &ui_image_info,
+            },
+        };
+
+        vkUpdateDescriptorSets(vkon.device, len(descriptor_writes), descriptor_writes, 0, 0);
+    }
 }
 
 void init_vulkan(HWND hwnd, HINSTANCE hinstance)
@@ -1542,6 +1624,8 @@ void init_vulkan(HWND hwnd, HINSTANCE hinstance)
         };
 
         vkCreateRenderPass(vkon.device, &render_pass_info, 0, &vkon.render_pass);
+        vkon.ui_render_pass = vkon.render_pass;
+        // vkCreateRenderPass(vkon.device, &render_pass_info, 0, &vkon.ui_render_pass);
     }
 
     { //create swapchain render pass
@@ -1637,6 +1721,7 @@ void init_vulkan(HWND hwnd, HINSTANCE hinstance)
     }
 
     create_render_framebuffer();
+    create_ui_framebuffer();
     create_swapchain_framebuffers();
 
     //command buffer
@@ -1785,9 +1870,13 @@ void init_vulkan(HWND hwnd, HINSTANCE hinstance)
         error = vkAllocateDescriptorSets(vkon.device, &desc_alloc_info, vkon.global_descriptor_sets);
         vk_assert("could not allocate descriptor sets");
 
-        vkon.default_font = load_font("data/arial.ttf", 24);
-
-        create_lightmap_descriptor_sets();
+        uint8* pixels = (uint8*) stalloc(4*sq(font_resolution));
+        stbtt_pack_context spc = {};
+        start_loading_fonts(&spc, pixels);
+        vkon.default_font = load_font(&spc, "data/BLKCHCRY.TTF", 72, 1.0);
+        vkon.symbols_font = load_font(&spc, "data/enochian.ttf", 72, -1.0);
+        end_loading_fonts(&spc, pixels);
+        stunalloc(pixels);
 
         for(int i = 0; i < MAX_QUEUED_FRAMES; i++) {
             VkDeviceSize buffer_size = sizeof(global_uniform_buffer);
@@ -1798,7 +1887,11 @@ void init_vulkan(HWND hwnd, HINSTANCE hinstance)
                              &vkon.uniform_buffers_memory[i]);
 
             vkMapMemory(vkon.device, vkon.uniform_buffers_memory[i], 0, buffer_size, 0, &vkon.uniform_buffers_mapped[i]);
+        }
 
+        create_lightmap_descriptor_sets();
+
+        for(int i = 0; i < MAX_QUEUED_FRAMES; i++) {
             VkDescriptorBufferInfo buffer_info = {
                 .buffer = vkon.uniform_buffers[i],
                 .offset = 0,
@@ -1807,7 +1900,7 @@ void init_vulkan(HWND hwnd, HINSTANCE hinstance)
 
             VkDescriptorImageInfo image_info = {
                 .sampler = vkon.texture_sampler,
-                .imageView = vkon.default_font.texture.image_view,
+                .imageView = vkon.font_texture.image_view,
                 .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             };
 
@@ -1885,6 +1978,12 @@ void init_vulkan(HWND hwnd, HINSTANCE hinstance)
                 .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .descriptorCount = 1,
                 .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            },
+            {
+                .binding = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
             }
         };
 
@@ -1913,6 +2012,12 @@ void init_vulkan(HWND hwnd, HINSTANCE hinstance)
             .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         };
 
+        VkDescriptorImageInfo ui_image_info = {
+            .sampler = vkon.texture_sampler,
+            .imageView = vkon.ui_color_image_view,
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        };
+
         VkWriteDescriptorSet descriptor_writes[] = {
             {
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -1922,6 +2027,14 @@ void init_vulkan(HWND hwnd, HINSTANCE hinstance)
                 .descriptorCount = 1,
                 .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                 .pImageInfo = &image_info,
+            }, {
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstSet = vkon.postprocess_descriptor_set,
+                .dstBinding = 1,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &ui_image_info,
             },
         };
 
@@ -1930,25 +2043,7 @@ void init_vulkan(HWND hwnd, HINSTANCE hinstance)
 
     create_replay_framebuffers();
 
-    //vertex buffer
-    create_vk_buffer(8*sizeof(test_vertex)+12*sizeof(uint16),
-                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     &vkon.staging_buffer,
-                     &vkon.staging_buffer_memory);
-
-    create_vk_buffer(8*sizeof(test_vertex),
-                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                     &vkon.vertex_buffer,
-                     &vkon.vertex_buffer_memory);
-
-    create_vk_buffer(12*sizeof(uint16),
-                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                     &vkon.index_buffer,
-                     &vkon.index_buffer_memory);
-
+    //vertex buffers
     for(int i = 0; i < MAX_QUEUED_FRAMES; i++) {
         create_vk_buffer(1024*1024,
                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -1978,9 +2073,6 @@ void init_vulkan(HWND hwnd, HINSTANCE hinstance)
         vk_assert("could not create fence");
     }
 
-    //texture
-    vkon.test_texture = load_image_to_texture("data/altar_foreground.png");
-
     create_pipelines();
 }
 
@@ -1993,17 +2085,8 @@ void cleanup_vulkan()
     vkDestroyDescriptorSetLayout(vkon.device, vkon.postprocess_descriptor_set_layout, 0);
     vkDestroyDescriptorSetLayout(vkon.device, vkon.replay_descriptor_set_layout, 0);
 
-    vkDestroyBuffer(vkon.device, vkon.index_buffer, 0);
-    vkFreeMemory(vkon.device, vkon.index_buffer_memory, 0);
-    vkDestroyBuffer(vkon.device, vkon.vertex_buffer, 0);
-    vkFreeMemory(vkon.device, vkon.vertex_buffer_memory, 0);
-
-    vkDestroyBuffer(vkon.device, vkon.staging_buffer, 0);
-    vkFreeMemory(vkon.device, vkon.staging_buffer_memory, 0);
-
     vkDestroySampler(vkon.device, vkon.texture_sampler, 0);
-    cleanup_texture(vkon.test_texture);
-    cleanup_texture(vkon.default_font.texture);
+    cleanup_texture(vkon.font_texture);
 
     for(int i = 0; i < MAX_QUEUED_FRAMES; i++) {
         vkDestroySemaphore(vkon.device, vkon.image_available_semaphores[i], 0);
@@ -2025,6 +2108,7 @@ void cleanup_vulkan()
 
     cleanup_replay_framebuffers();
     cleanup_swapchain();
+    cleanup_ui_framebuffer();
     cleanup_render_framebuffer();
 
     cleanup_lightmap_data();
@@ -2034,6 +2118,7 @@ void cleanup_vulkan()
     vkDestroyRenderPass(vkon.device, vkon.replay_render_pass, 0);
     vkDestroyRenderPass(vkon.device, vkon.swapchain_render_pass, 0);
     vkDestroyRenderPass(vkon.device, vkon.render_pass, 0);
+    // vkDestroyRenderPass(vkon.device, vkon.ui_render_pass, 0);
 
     vkDestroyDevice(vkon.device, 0);
     vkDestroySurfaceKHR(vkon.instance, vkon.surface, 0);
@@ -2045,6 +2130,8 @@ void cleanup_vulkan()
 
 struct user_input;
 void render_game(user_input* input);
+void render_ui(user_input* input);
+void update_uniform_buffer();
 
 void draw_frame(user_input* input)
 {
@@ -2143,22 +2230,12 @@ void draw_frame(user_input* input)
         VkDeviceSize offsets[] = {0};
         vkCmdBindVertexBuffers(vkon.command_buffers[f], 0, 1, &vkon.dynamic_vertex_buffers[f], offsets);
 
-        {
-            global_uniform_buffer uniforms = {
-                .t = vkon.camera,
-                .camera_axes = {pad_4(vkon.camera_axes[0]), pad_4(vkon.camera_axes[1]), pad_4(vkon.camera_axes[2])},
-                .camera_pos = vkon.camera_pos,
-                .fov = vkon.fov,
-                .aspect_ratio = vkon.aspect_ratio,
-                .time = vkon.time,
-            };
-            memcpy(vkon.uniform_buffers_mapped[f], &uniforms, sizeof(uniforms));
-        }
+        update_uniform_buffer();
 
         update_lightmap();
 
         VkClearValue clear_values[] = {
-            {.color = {0.025f, 0.0f, 0.035f, 1.0f}},
+            {.color = {0.0f, 0.0f, 0.0f, 1.0f}},
             {.depthStencil = {1.0f, 0}},
         };
         VkRenderPassBeginInfo render_pass_info = {
@@ -2196,6 +2273,46 @@ void draw_frame(user_input* input)
 
         vkCmdEndRenderPass(vkon.command_buffers[f]);
 
+        //
+        VkClearValue ui_clear_values[] = {
+            {.color = vkon.ui_clear_color},
+            {.depthStencil = {1.0f, 0}},
+        };
+        VkRenderPassBeginInfo ui_render_pass_info = {
+            .sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+            .renderPass = vkon.ui_render_pass,
+            .framebuffer = vkon.ui_framebuffer,
+            .renderArea = {
+                .offset = {0, 0},
+                .extent = {vkon.ui_resolution.x, vkon.ui_resolution.y},
+            },
+            .clearValueCount = len(ui_clear_values),
+            .pClearValues = ui_clear_values,
+        };
+        vkCmdBeginRenderPass(vkon.command_buffers[f], &ui_render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+        {
+            VkViewport viewport = {
+                .x = 0.0f,
+                .y = 0.0f,
+                .width = (float) vkon.ui_resolution.x,
+                .height = (float) vkon.ui_resolution.y,
+                .minDepth = 0.0f,
+                .maxDepth = 1.0f,
+            };
+            vkCmdSetViewport(vkon.command_buffers[f], 0, 1, &viewport);
+
+            VkRect2D scissor = {
+                .offset = {0, 0},
+                .extent = {vkon.ui_resolution.x, vkon.ui_resolution.y},
+            };
+            vkCmdSetScissor(vkon.command_buffers[f], 0, 1, &scissor);
+        }
+
+        render_ui(input);
+
+        vkCmdEndRenderPass(vkon.command_buffers[f]);
+
         { //transition image layout for postprocess
             VkImageMemoryBarrier barrier = {
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -2215,6 +2332,15 @@ void draw_frame(user_input* input)
                 },
             };
 
+            vkCmdPipelineBarrier(vkon.command_buffers[f],
+                                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 0,
+                                 0, 0,
+                                 0, 0,
+                                 1, &barrier);
+
+            barrier.image = vkon.ui_color_image;
             vkCmdPipelineBarrier(vkon.command_buffers[f],
                                  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
                                  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
@@ -2261,6 +2387,7 @@ void draw_frame(user_input* input)
 
         vkCmdBindPipeline(vkon.command_buffers[f], VK_PIPELINE_BIND_POINT_GRAPHICS, fullscreen_image_pipeline->pipeline);
         vkCmdDraw(vkon.command_buffers[f], 4, 1, 0, 0);
+
         vkCmdEndRenderPass(vkon.command_buffers[f]);
 
         if(vkon.replay_mode==0 && vkon.max_replay_frames > 0 && vkon.do_gif_frame) { //replay renderpass
@@ -2304,6 +2431,7 @@ void draw_frame(user_input* input)
 
             vkCmdBindPipeline(vkon.command_buffers[f], VK_PIPELINE_BIND_POINT_GRAPHICS, replay_pipeline->pipeline);
             vkCmdDraw(vkon.command_buffers[f], 4, 1, 0, 0);
+
             vkCmdEndRenderPass(vkon.command_buffers[f]);
         }
 
@@ -2326,6 +2454,15 @@ void draw_frame(user_input* input)
                 },
             };
 
+            vkCmdPipelineBarrier(vkon.command_buffers[f],
+                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                 0,
+                                 0, 0,
+                                 0, 0,
+                                 1, &barrier);
+
+            barrier.image = vkon.ui_color_image;
             vkCmdPipelineBarrier(vkon.command_buffers[f],
                                  VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                  VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -2379,20 +2516,9 @@ void draw_frame(user_input* input)
     vkon.current_frame = (vkon.current_frame+1) % MAX_QUEUED_FRAMES;
 }
 
-void init_render_context(render_context* rc, int_2 resolution)
-{
-    rc->resolution = resolution;
-
-}
-
-void use_render_context(render_context* rc)
-{
-
-}
-
 void update_camera_matrix()
 {
-    real screen_dist = 1.0/tan(0.5*vkon.fov);
+    real screen_dist = 1.0f/tan(0.5f*vkon.fov);
 
     real_4x4 translate = {
         1, 0, 0, 0,
@@ -2423,12 +2549,6 @@ void update_camera_matrix()
 
 ////////////////////////////////////////////////////
 
-#define font_resolution 1024
-
-void draw_to_screen()
-{
-}
-
 void draw_bitmap(real_3 x, real scale, real theta, bitmap_t bitmap)
 {
 }
@@ -2454,10 +2574,6 @@ void draw_triangles(real_3* vertices, real_4* colors, int n_triangles, real_4x4 
 }
 
 void draw_color_picker(real_3 x, real r, real_3 hsv)
-{
-}
-
-void draw_background(render_context* rc)
 {
 }
 

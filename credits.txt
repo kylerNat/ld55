@@ -1,0 +1,25 @@
+Game by Kyler Natividad
+
+Libraries used:
+    stb libs: https://github.com/nothings/stb/tree/master
+    msf_gif: https://github.com/notnullnotvoid/msf_gif
+    levenshtein-sse: https://github.com/addaleax/levenshtein-sse
+    my personal general game codebase
+
+APIs:
+    Windows APIs
+    Vulkan
+
+Tools:
+    clang
+    Reaper
+    Surge XT
+    Dexed
+
+Assets:
+    thesaurus: Princeton University "About WordNet." https://wordnet.princeton.edu. Princeton University. 2010.
+    json export by zaibacu: https://github.com/zaibacu/thesaurus
+
+    fonts:
+        Black Chancery by Doug Miles - https://www.dafont.com/black-chancery.font
+        Enochian by Glumbosch - https://www.dafont.com/enochian.font

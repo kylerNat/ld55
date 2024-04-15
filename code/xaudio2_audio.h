@@ -204,25 +204,23 @@ void play_music(sound_t* sound)
     assert(hr == S_OK);
 }
 
-// sound_t menu_blip = {};
-// sound_t menu_click = {};
-// sound_t land_sound = {};
-// // sound_t step_sound = {};
-// sound_t jump_sound = {};
-// sound_t charge_sound = {};
-// sound_t discharge_sound = {};
-// sound_t victory_sound = {};
+sound_t explosion_sound = {};
+sound_t explosion2_sound = {};
+sound_t tentacle_hit_sound = {};
+sound_t freeze_sound = {};
+sound_t heal_sound = {};
+sound_t menu_click_sound = {};
+sound_t key_sound = {};
 
 void load_sounds()
 {
-    // menu_blip = load_ogg("sounds/menu_blip.ogg");
-    // menu_click = load_ogg("sounds/menu_click.ogg");
-    // land_sound = load_ogg("sounds/land.ogg");
-    // // step_sound = load_ogg("sounds/step.ogg");
-    // jump_sound = load_ogg("sounds/jump.ogg");
-    // charge_sound = load_ogg("sounds/charge.ogg");
-    // discharge_sound = load_ogg("sounds/discharge.ogg");
-    // victory_sound = load_ogg("sounds/victory.ogg");
+    explosion_sound = load_ogg("data/sounds/explosion.ogg");
+    explosion2_sound = load_ogg("data/sounds/explosion2.ogg");
+    tentacle_hit_sound = load_ogg("data/sounds/tentacle_hit.ogg");
+    freeze_sound = load_ogg("data/sounds/freeze.ogg");
+    heal_sound = load_ogg("data/sounds/heal.ogg");
+    menu_click_sound = load_ogg("data/sounds/menu_click.ogg");
+    key_sound = load_ogg("data/sounds/key.ogg");
 }
 
 #endif //AUDIO
